@@ -63,7 +63,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
           if (widget.onProductSaved != null) {
             widget.onProductSaved!();
           }
-          Navigator.pop(context); // Voltar para a página anterior
+          Navigator.pop(context);
         }).catchError((error) {
           _showErrorSnackbar('Erro ao adicionar produto: $error');
         });

@@ -3,6 +3,7 @@ import 'services/api_service.dart';
 import 'models/product.dart';
 import 'models/button.dart';
 import 'pages/product_form.dart';
+import 'pages/comment_form.dart';
 
 void main() {
   runApp(const CaveControlApp());
@@ -14,7 +15,8 @@ class CaveControlApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CaveControl',
+      title: 'Nossa Lista',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
@@ -33,42 +35,88 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late Future<List<Product>> _products;
   late Future<ButtonState> _buttonState;
+  bool _hasComment = false;
   final ApiService apiService = ApiService(baseUrl: 'https://cavecontrol-api-production.up.railway.app');
 
   @override
   void initState() {
     super.initState();
-    _loadProducts();
-    _loadButtonState();
+    _products = _loadProducts();
+    _buttonState = _loadButtonState();
+    _checkCommentState();
   }
 
-  void _loadProducts() {
-    apiService.fetchProducts().then((products) {
+  Future<List<Product>> _loadProducts() async {
+    try {
+      return await apiService.fetchProducts();
+    } catch (error) {
+      throw Exception('Erro ao carregar produtos: $error');
+    }
+  }
+
+  Future<ButtonState> _loadButtonState() async {
+    try {
+      return await apiService.fetchButtonState();
+    } catch (error) {
+      throw Exception('Erro ao carregar estado do botão: $error');
+    }
+  }
+
+  Future<void> _checkCommentState() async {
+    try {
+      final comment = await apiService.fetchComment();
       setState(() {
-        _products = Future.value(products);
+        _hasComment = comment.content != null && comment.content!.isNotEmpty;
       });
-    }).catchError((error) {
+    } catch (e) {
       setState(() {
-        _products = Future.error(error);
+        _hasComment = false;
       });
-    });
+    }
   }
 
-  void _loadButtonState() {
-    setState(() {
-      _buttonState = apiService.fetchButtonState();
-    });
-  }
-
-  void _toggleButtonState() {
-    _buttonState.then((currentState) {
+  void _toggleButtonState() async {
+    try {
+      final currentState = await _buttonState;
       final newState = ButtonState(id: currentState.id, isActive: !currentState.isActive);
-      apiService.updateButtonState(newState).then((_) {
-        _loadButtonState();
-      }).catchError((error) {
-        // Handle error if needed
+      await apiService.updateButtonState(newState);
+      setState(() {
+        _buttonState = Future.value(newState);
       });
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao alternar botão: $error')),
+      );
+    }
+  }
+
+  void _onCommentSaved(bool hasComment) {
+    setState(() {
+      _hasComment = hasComment;
     });
+  }
+
+  void _openCommentForm() async {
+    showDialog(
+      context: context,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    await _checkCommentState();
+
+    Navigator.pop(context);
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CommentFormPage(
+          apiService: apiService,
+          onCommentSaved: _onCommentSaved,
+        ),
+      ),
+    );
   }
 
   @override
@@ -79,11 +127,11 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Stack(
         children: [
-          // RefreshIndicator para recarregar a lista ao arrastar para baixo
           RefreshIndicator(
             onRefresh: () async {
-              _loadProducts(); // Chama o método que atualiza os produtos
-              await Future.delayed(const Duration(seconds: 1)); // Simula tempo de carregamento
+              setState(() {
+                _products = _loadProducts();
+              });
             },
             child: FutureBuilder<List<Product>>(
               future: _products,
@@ -105,7 +153,9 @@ class _HomePageState extends State<HomePage> {
                           icon: const Icon(Icons.delete),
                           onPressed: () {
                             apiService.deleteProduct(product.id).then((_) {
-                              _loadProducts();
+                              setState(() {
+                                _products = _loadProducts();
+                              });
                             }).catchError((error) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Erro ao excluir produto: $error')),
@@ -120,12 +170,14 @@ class _HomePageState extends State<HomePage> {
                               builder: (context) => ProductFormPage(
                                 apiService: apiService,
                                 product: product,
-                                onProductSaved: _loadProducts,
+                                onProductSaved: () {
+                                  setState(() {
+                                    _products = _loadProducts();
+                                  });
+                                },
                               ),
                             ),
-                          ).then((_) {
-                            _loadProducts();
-                          });
+                          );
                         },
                       );
                     },
@@ -136,14 +188,10 @@ class _HomePageState extends State<HomePage> {
               },
             ),
           ),
-
-          // Botão de coração
           FutureBuilder<ButtonState>(
             future: _buttonState,
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox.shrink();
-              } else if (snapshot.hasError) {
+              if (snapshot.connectionState != ConnectionState.done || snapshot.hasError) {
                 return const SizedBox.shrink();
               } else if (snapshot.hasData) {
                 final buttonState = snapshot.data!;
@@ -152,14 +200,10 @@ class _HomePageState extends State<HomePage> {
                   left: 20,
                   child: FloatingActionButton(
                     onPressed: _toggleButtonState,
-                    backgroundColor: buttonState.isActive
-                        ? Colors.red // Ativo: vermelho
-                        : Theme.of(context).floatingActionButtonTheme.backgroundColor, // Inativo: cor padrão
+                    backgroundColor: buttonState.isActive ? Colors.red : Theme.of(context).floatingActionButtonTheme.backgroundColor,
                     child: Icon(
                       Icons.favorite,
-                      color: buttonState.isActive
-                          ? Colors.white // Ativo: ícone branco
-                          : Theme.of(context).iconTheme.color, // Inativo: ícone padrão
+                      color: buttonState.isActive ? Colors.white : Colors.black,
                     ),
                   ),
                 );
@@ -168,20 +212,18 @@ class _HomePageState extends State<HomePage> {
               }
             },
           ),
-
-          // Novo botão com ícone de caixa de diálogo ao lado do botão de coração
           Positioned(
             bottom: 20,
-            left: 90, // Alinha o botão ao lado do botão de coração
+            left: 90,
             child: FloatingActionButton(
-              onPressed: () {
-                // Adicionar funcionalidade aqui
-              },
-              child: const Icon(Icons.chat_bubble),
+              onPressed: _openCommentForm,
+              backgroundColor: _hasComment ? Colors.red : Theme.of(context).floatingActionButtonTheme.backgroundColor,
+              child: Icon(
+                Icons.chat_bubble,
+                color: _hasComment ? Colors.white : Colors.black,
+              ),
             ),
           ),
-
-          // Botão flutuante para adicionar produto
           Positioned(
             bottom: 20,
             right: 20,
@@ -190,12 +232,18 @@ class _HomePageState extends State<HomePage> {
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => ProductFormPage(apiService: apiService, onProductSaved: _loadProducts),
+                    builder: (context) => ProductFormPage(apiService: apiService, onProductSaved: () {
+                      setState(() {
+                        _products = _loadProducts();
+                      });
+                    }),
                   ),
                 );
 
                 if (result != null && result == 'update') {
-                  _loadProducts();
+                  setState(() {
+                    _products = _loadProducts();
+                  });
                 }
               },
               child: const Icon(Icons.add),

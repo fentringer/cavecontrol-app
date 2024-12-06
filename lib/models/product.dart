@@ -7,9 +7,9 @@ class Product {
 
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
-      id: json['id'] is int ? json['id'] : 0, // Garantir que o id é um int
-      name: json['name'] ?? '', // Se 'name' for null, atribui uma string vazia
-      quantity: json['quantity'] is int ? json['quantity'] : 0, // Garantir que quantity é um int
+      id: json['id'] is int ? json['id'] : 0,
+      name: json['name'] ?? '',
+      quantity: json['quantity'] is int ? json['quantity'] : 0,
     );
   }
 
